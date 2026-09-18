@@ -8,6 +8,7 @@ const app = express();
 const port = Number(process.env.PORT ?? 8080);
 const DB_API_KEY = process.env.DB_API_KEY;
 const OWNER_ID = process.env.DB_OWNER_ID ?? "owner";
+if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required for permanent DB storage");
 
 function createModel(): ModelAdapter {
   const provider = (process.env.MODEL_PROVIDER ?? "mock").toLowerCase();
