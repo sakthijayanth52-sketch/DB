@@ -201,7 +201,7 @@ private fun DbApp() {
         sending = true
         scope.launch {
             sendToDb(sent, conversationId).onSuccess { result ->
-                conversationId = result.third.ifBlank { result.second ?: conversationId }
+                conversationId = result.third.ifBlank { conversationId ?: "" }.ifBlank { null }
                 messages = messages + ChatMessage(result.first, true)
                 if (speakReplies) activity.speak(result.first)
             }.onFailure { error ->
