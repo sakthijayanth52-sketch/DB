@@ -3,6 +3,10 @@ package com.db.ai
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -57,13 +61,22 @@ private suspend fun sendToDb(message: String, conversationId: String?): Result<P
 @Composable
 private fun DbApp() {
     var input by remember { mutableStateOf("") }
+    var showApp by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(250)
+        showApp = true
+    }
     var sending by remember { mutableStateOf(false) }
     var conversationId by remember { mutableStateOf<String?>(null) }
     var messages by remember { mutableStateOf(listOf(ChatMessage("Hello. I am DB. The app shell is ready.", true))) }
     val scope = rememberCoroutineScope()
     MaterialTheme {
         Surface(Modifier.fillMaxSize()) {
-            Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            AnimatedVisibility(
+                visible = showApp,
+                enter = fadeIn(animationSpec = tween(650)) + scaleIn(initialScale = 0.92f, animationSpec = tween(650))
+            ) {
+                Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("DB", style = MaterialTheme.typography.headlineMedium)
                 Text("Your personal AI")
                 LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -86,6 +99,7 @@ private fun DbApp() {
                             sending = false
                         }
                     }) { Text("Send") }
+                }
                 }
             }
         }
