@@ -1,14 +1,22 @@
 import "dotenv/config";
 import cors from "cors";
 import express from "express";
-import { ModelAdapter, MockModel } from "./model.js";
+import { ModelAdapter, MockModel, OpenAIModel } from "./model.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 8080);
-const model: ModelAdapter = new MockModel();
+
+function createModel(): ModelAdapter {
+  const provider = (process.env.MODEL_PROVIDER ?? "mock").toLowerCase();
+  if (provider === "openai") return new OpenAIModel();
+  if (provider === "mock") return new MockModel();
+  throw new Error(`Unsupported MODEL_PROVIDER: ${provider}`);
+}
+
+const model = createModel();
 
 app.use(cors({ origin: process.env.DB_CORS_ORIGIN ?? "*" }));
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
 
 app.get("/health", (_req, res) =>
   res.json({ ok: true, service: "db-backend", version: "0.1.0" })
@@ -32,7 +40,8 @@ app.post("/v1/chat", async (req, res) => {
     });
 
     return res.json(result);
-  } catch {
+  } catch (error) {
+    console.error("DB model request failed", error);
     return res.status(500).json({ error: "DB model request failed" });
   }
 });
