@@ -32,3 +32,8 @@ jobs:
         with:
           gradle-version: "8.10"
       - run: gradle assembleDebug
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
