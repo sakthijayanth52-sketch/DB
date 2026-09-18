@@ -1,0 +1,9 @@
+.gradle/
+.idea/
+local.properties
+**/build/
+node_modules/
+.env
+dist/
+.DS_Store
+Thumbs.db
