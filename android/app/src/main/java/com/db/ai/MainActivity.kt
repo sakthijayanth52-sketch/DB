@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.content.SharedPreferences
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -185,13 +186,43 @@ private fun DbApp() {
     var showApp by remember { mutableStateOf(false) }
     var sending by remember { mutableStateOf(false) }
     var listening by remember { mutableStateOf(false) }
-    var conversationId by remember { mutableStateOf<String?>(null) }
+    val prefs = remember { activity.getSharedPreferences("db_state", android.content.Context.MODE_PRIVATE) }
+    var conversationId by remember { mutableStateOf(prefs.getString("conversation_id", null)) }
     var speakReplies by remember { mutableStateOf(true) }
     var messages by remember { mutableStateOf(listOf(ChatMessage("Hello. I am DB. Voice and text are ready.", true))) }
     val scope = rememberCoroutineScope()
     val activity = androidx.compose.ui.platform.LocalContext.current as MainActivity
 
-    LaunchedEffect(Unit) { kotlinx.coroutines.delay(180); showApp = true }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(180)
+        showApp = true
+        val savedId = conversationId
+        if (savedId != null) {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    val connection = (URL(DB_BACKEND_URL + "/v1/conversations/" + savedId + "/messages").openConnection() as HttpURLConnection).apply {
+                        requestMethod = "GET"
+                        connectTimeout = 10_000
+                        readTimeout = 20_000
+                    }
+                    val code = connection.responseCode
+                    val body = if (code in 200..299) connection.inputStream.bufferedReader().use { it.readText() } else ""
+                    connection.disconnect()
+                    if (code !in 200..299) error("history unavailable")
+                    val json = JSONObject(body)
+                    val arr = json.optJSONArray("messages") ?: return@runCatching
+                    val restored = mutableListOf<ChatMessage>()
+                    for (i in 0 until arr.length()) {
+                        val item = arr.getJSONObject(i)
+                        val role = item.optString("role")
+                        val text = item.optString("content")
+                        if (text.isNotBlank()) restored += ChatMessage(text, role == "assistant")
+                    }
+                    if (restored.isNotEmpty()) messages = restored
+                }
+            }
+        }
+    }
 
     fun submit(text: String) {
         val sent = text.trim()
@@ -202,6 +233,7 @@ private fun DbApp() {
         scope.launch {
             sendToDb(sent, conversationId).onSuccess { result ->
                 conversationId = result.third.ifBlank { conversationId ?: "" }.ifBlank { null }
+                conversationId?.let { prefs.edit().putString("conversation_id", it).apply() }
                 messages = messages + ChatMessage(result.first, true)
                 if (speakReplies) activity.speak(result.first)
             }.onFailure { error ->
