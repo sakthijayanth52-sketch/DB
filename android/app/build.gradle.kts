@@ -12,9 +12,9 @@ android {
         applicationId = "com.db.ai"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
-        buildConfigField("String", "DB_BACKEND_URL", "\"http://10.0.2.2:8080\"")
+        versionCode = 2
+        versionName = "0.2.0"
+        buildConfigField("String", "DB_BACKEND_URL", "\"https://db-backend-production-fd03.up.railway.app\"")
     }
 
     buildFeatures {
