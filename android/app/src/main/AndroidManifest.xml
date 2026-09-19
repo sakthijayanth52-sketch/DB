@@ -7,6 +7,7 @@
         android:allowBackup="true"
         android:usesCleartextTraffic="true"
         android:label="DB"
+        android:icon="@mipmap/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/Theme.DB">
         <activity android:name=".MainActivity" android:exported="true">
