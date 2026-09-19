@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { timingSafeEqual } from "node:crypto";
 import cors from "cors";
 import express from "express";
 import {
@@ -19,7 +20,8 @@ import {
 
 const app = express();
 const port = Number(process.env.PORT ?? 8080);
-const DB_API_KEY = process.env.DB_API_KEY;
+const DB_API_KEY = process.env.DB_API_KEY ?? "";
+const REQUIRE_AUTH = (process.env.DB_REQUIRE_AUTH ?? "false").toLowerCase() === "true";
 const OWNER_ID = process.env.DB_OWNER_ID ?? "owner";
 
 if (!process.env.DATABASE_URL) {
@@ -35,13 +37,32 @@ function createModel(): ModelAdapter {
 
 const model = createModel();
 
+if (REQUIRE_AUTH && !DB_API_KEY) {
+  throw new Error("DB_API_KEY is required when DB_REQUIRE_AUTH=true");
+}
+
+const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 app.use(cors({ origin: process.env.DB_CORS_ORIGIN ?? "*" }));
 app.use(express.json({ limit: "1mb" }));
 
 app.use("/v1", (req, res, next) => {
-  if (!DB_API_KEY) return next();
-  const supplied = req.header("authorization")?.replace(/^Bearer\s+/i, "");
-  if (supplied !== DB_API_KEY) return res.status(401).json({ error: "unauthorized" });
+  if (REQUIRE_AUTH) {
+    const supplied = req.header("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+    const a = Buffer.from(supplied);
+    const b = Buffer.from(DB_API_KEY);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      return res.status(401).json({ error: "unauthorized" });
+    }
+  }
+  const key = req.ip ?? "unknown";
+  const now = Date.now();
+  const bucket = rateBuckets.get(key);
+  if (!bucket || bucket.resetAt <= now) {
+    rateBuckets.set(key, { count: 1, resetAt: now + 60_000 });
+  } else {
+    bucket.count += 1;
+    if (bucket.count > 60) return res.status(429).json({ error: "rate limit exceeded" });
+  }
   return next();
 });
 
@@ -51,7 +72,8 @@ app.get("/health", (_req, res) =>
     service: "db-backend",
     version: "0.2.0",
     persistentStorage: true,
-    modelProvider: process.env.MODEL_PROVIDER ?? "mock"
+    modelProvider: process.env.MODEL_PROVIDER ?? "mock",
+    authenticationRequired: REQUIRE_AUTH
   })
 );
 
@@ -71,6 +93,12 @@ app.post("/v1/chat", async (req, res) => {
 
     const previousResponseId = await getProviderResponseId(conversationId, OWNER_ID);
     await saveMessage(conversationId, OWNER_ID, "user", message);
+
+    const rememberMatch = message.match(/^remember(?: this| that)?[:\\s]+(.+)$/i);
+    if (rememberMatch?.[1] && rememberMatch[1].trim().length <= 1000) {
+      const { saveMemory } = await import("./db.js");
+      await saveMemory(OWNER_ID, rememberMatch[1].trim());
+    }
 
     const history = await listMessages(conversationId, OWNER_ID, 40);
     const memories = await listMemories(OWNER_ID, 20);
