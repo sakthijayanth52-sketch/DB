@@ -42,7 +42,7 @@ import kotlin.math.sin
 
 data class ChatMessage(val text: String, val fromDb: Boolean)
 
-private const val DB_BACKEND_URL = "http://10.0.2.2:8080"
+private const val DB_BACKEND_URL = BuildConfig.DB_BACKEND_URL
 
 class MainActivity : ComponentActivity() {
     private var tts: TextToSpeech? = null
