@@ -182,16 +182,18 @@ private fun DbCore(active: Boolean) {
 
 @Composable
 private fun DbApp() {
+    val activity = androidx.compose.ui.platform.LocalContext.current as MainActivity
+    val prefs: SharedPreferences = remember {
+        activity.getSharedPreferences("db_state", android.content.Context.MODE_PRIVATE)
+    }
     var input by remember { mutableStateOf("") }
     var showApp by remember { mutableStateOf(false) }
     var sending by remember { mutableStateOf(false) }
     var listening by remember { mutableStateOf(false) }
-    val prefs = remember { activity.getSharedPreferences("db_state", android.content.Context.MODE_PRIVATE) }
     var conversationId by remember { mutableStateOf(prefs.getString("conversation_id", null)) }
     var speakReplies by remember { mutableStateOf(true) }
     var messages by remember { mutableStateOf(listOf(ChatMessage("Hello. I am DB. Voice and text are ready.", true))) }
     val scope = rememberCoroutineScope()
-    val activity = androidx.compose.ui.platform.LocalContext.current as MainActivity
 
     LaunchedEffect(Unit) {
         kotlinx.coroutines.delay(180)
