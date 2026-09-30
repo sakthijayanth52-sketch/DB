@@ -5,7 +5,8 @@ import express from "express";
 import {
   ModelAdapter,
   MockModel,
-  OpenAIModel
+  OpenAIModel,
+  OllamaModel
 } from "./model.js";
 import {
   ensureSchema,
@@ -34,6 +35,7 @@ if (!process.env.DATABASE_URL) {
 function createModel(): ModelAdapter {
   const provider = (process.env.MODEL_PROVIDER ?? "mock").toLowerCase();
   if (provider === "openai") return new OpenAIModel();
+  if (provider === "ollama") return new OllamaModel();
   if (provider === "mock") return new MockModel();
   throw new Error(`Unsupported MODEL_PROVIDER: ${provider}`);
 }
