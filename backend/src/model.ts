@@ -61,6 +61,52 @@ export class OpenAIModel implements ModelAdapter {
   }
 }
 
+export class OllamaModel implements ModelAdapter {
+  private readonly baseUrl: string;
+  private readonly model: string;
+
+  constructor() {
+    this.baseUrl = (process.env.OLLAMA_URL ?? "http://localhost:11434").replace(/\/$/, "");
+    this.model = process.env.OLLAMA_MODEL ?? "llama3.2";
+  }
+
+  async chat(request: ChatRequest): Promise<ModelResponse> {
+    const history = (request.history ?? []).slice(-30);
+    const memories = (request.memories ?? []).slice(-20);
+
+    const context = [
+      "You are DB, a personal AI assistant owned and directed by its user.",
+      "Be helpful, accurate, clear, and honest. Never claim to have performed an action you did not perform.",
+      memories.length
+        ? "Durable memories:\n" + memories.map((m) => "- " + m).join("\n")
+        : "Durable memories: none.",
+      history.length
+        ? "Recent conversation:\n" + history.map((m) => (m.role === "user" ? "User: " : "DB: ") + m.content).join("\n")
+        : "Recent conversation: none."
+    ].join("\n\n");
+
+    const response = await fetch(this.baseUrl + "/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: this.model,
+        prompt: context + "\n\nUser message:\n" + request.message,
+        stream: false
+      })
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Ollama request failed (${response.status}): ${body}`);
+    }
+
+    const data = (await response.json()) as { response?: string; model?: string };
+    if (!data.response) throw new Error("Ollama returned an empty response");
+
+    return { text: data.response, model: data.model ?? this.model };
+  }
+}
+
 export class MockModel implements ModelAdapter {
   async chat(request: ChatRequest): Promise<ModelResponse> {
     return { text: `DB received: ${request.message}`, model: "mock" };
