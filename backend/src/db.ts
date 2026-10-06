@@ -13,6 +13,21 @@ export type StoredMessage = {
 export async function ensureSchema(): Promise<void> {
   if (!pool) return;
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id UUID PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS sessions (
+      id UUID PRIMARY KEY,
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash TEXT NOT NULL UNIQUE,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions (expires_at);
     CREATE TABLE IF NOT EXISTS conversations (
       id UUID PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -36,6 +51,57 @@ export async function ensureSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_messages_conversation_created ON messages (conversation_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_memories_user_created ON memories (user_id, created_at);
   `);
+}
+
+
+export async function createUser(id: string, email: string, passwordHash: string): Promise<void> {
+  if (!pool) return;
+  await pool.query(
+    "INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)",
+    [id, email, passwordHash]
+  );
+}
+
+export async function findUserByEmail(email: string): Promise<{ id: string; email: string; passwordHash: string } | undefined> {
+  if (!pool) return undefined;
+  const result = await pool.query(
+    "SELECT id, email, password_hash FROM users WHERE email = $1",
+    [email]
+  );
+  const row = result.rows[0];
+  return row ? { id: row.id, email: row.email, passwordHash: row.password_hash } : undefined;
+}
+
+export async function createSession(
+  id: string,
+  userId: string,
+  tokenHash: string,
+  expiresAt: Date
+): Promise<void> {
+  if (!pool) return;
+  await pool.query(
+    "INSERT INTO sessions (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)",
+    [id, userId, tokenHash, expiresAt]
+  );
+}
+
+export async function getUserIdBySession(tokenHash: string): Promise<string | undefined> {
+  if (!pool) return undefined;
+  const result = await pool.query(
+    "SELECT user_id FROM sessions WHERE token_hash = $1 AND expires_at > NOW()",
+    [tokenHash]
+  );
+  return result.rows[0]?.user_id;
+}
+
+export async function deleteSession(tokenHash: string): Promise<void> {
+  if (!pool) return;
+  await pool.query("DELETE FROM sessions WHERE token_hash = $1", [tokenHash]);
+}
+
+export async function deleteExpiredSessions(): Promise<void> {
+  if (!pool) return;
+  await pool.query("DELETE FROM sessions WHERE expires_at <= NOW()");
 }
 
 export async function createConversation(userId: string): Promise<string> {
