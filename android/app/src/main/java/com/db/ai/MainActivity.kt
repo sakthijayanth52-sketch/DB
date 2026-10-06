@@ -8,6 +8,7 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.content.SharedPreferences
+import android.content.Context
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -123,7 +124,25 @@ private class DbRecognitionListener(
     override fun onEvent(eventType: Int, params: Bundle?) {}
 }
 
-private suspend fun sendToDb(message: String, conversationId: String?): Result<Triple<String, String?, String>> =
+private suspend fun authDb(email: String, password: String, register: Boolean): Result<String> = withContext(Dispatchers.IO) {
+    runCatching {
+        val path = if (register) "/v1/auth/register" else "/v1/auth/login"
+        val connection = (URL(DB_BACKEND_URL + path).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"; connectTimeout = 10_000; readTimeout = 20_000; doOutput = true
+            setRequestProperty("Content-Type", "application/json")
+        }
+        val body = JSONObject().apply { put("email", email); put("password", password) }.toString()
+        connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+        val code = connection.responseCode
+        val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+        val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+        connection.disconnect()
+        if (code !in 200..299) error(JSONObject(text).optString("error", "Authentication failed"))
+        JSONObject(text).getString("token")
+    }
+}
+
+private suspend fun sendToDb(message: String, conversationId: String?, token: String): Result<Triple<String, String?, String>> =
     withContext(Dispatchers.IO) {
         runCatching {
             val connection = (URL(DB_BACKEND_URL + "/v1/chat").openConnection() as HttpURLConnection).apply {
@@ -132,6 +151,7 @@ private suspend fun sendToDb(message: String, conversationId: String?): Result<T
                 readTimeout = 60_000
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Authorization", "Bearer $token")
             }
             val body = JSONObject().apply {
                 put("message", message)
@@ -187,6 +207,11 @@ private fun DbApp() {
         activity.getSharedPreferences("db_state", android.content.Context.MODE_PRIVATE)
     }
     var input by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var token by remember { mutableStateOf(prefs.getString("auth_token", null)) }
+    var authError by remember { mutableStateOf("") }
+    var registering by remember { mutableStateOf(false) }
     var showApp by remember { mutableStateOf(false) }
     var sending by remember { mutableStateOf(false) }
     var listening by remember { mutableStateOf(false) }
@@ -194,6 +219,22 @@ private fun DbApp() {
     var speakReplies by remember { mutableStateOf(true) }
     var messages by remember { mutableStateOf(listOf(ChatMessage("Hello. I am DB. Voice and text are ready.", true))) }
     val scope = rememberCoroutineScope()
+
+    if (token == null) {
+        Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center) {
+            Text("DB", style = MaterialTheme.typography.displaySmall)
+            Text(if (registering) "Create your DB account" else "Sign in to DB", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(18.dp))
+            OutlinedTextField(email, { email = it }, Modifier.fillMaxWidth(), label = { Text("Email") }, singleLine = true)
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("Password (8+ characters)") }, singleLine = true)
+            if (authError.isNotBlank()) Text(authError, color = MaterialTheme.colorScheme.error)
+            Spacer(Modifier.height(14.dp))
+            Button(onClick = { scope.launch { authDb(email, password, registering).onSuccess { t -> prefs.edit().putString("auth_token", t).apply(); token = t; authError = "" }.onFailure { authError = it.message ?: "Authentication failed" } } }, enabled = email.isNotBlank() && password.length >= 8) { Text(if (registering) "Create account" else "Login") }
+            TextButton(onClick = { registering = !registering; authError = "" }) { Text(if (registering) "Already have an account? Login" else "New here? Create account") }
+        }
+        return@DbApp
+    }
 
     LaunchedEffect(Unit) {
         kotlinx.coroutines.delay(180)
@@ -204,6 +245,7 @@ private fun DbApp() {
                 runCatching {
                     val connection = (URL(DB_BACKEND_URL + "/v1/conversations/" + savedId + "/messages").openConnection() as HttpURLConnection).apply {
                         requestMethod = "GET"
+                        setRequestProperty("Authorization", "Bearer ${token!!}")
                         connectTimeout = 10_000
                         readTimeout = 20_000
                     }
@@ -233,7 +275,7 @@ private fun DbApp() {
         messages = messages + ChatMessage(sent, false)
         sending = true
         scope.launch {
-            sendToDb(sent, conversationId).onSuccess { result ->
+            sendToDb(sent, conversationId, token!!).onSuccess { result ->
                 conversationId = result.third.ifBlank { conversationId ?: "" }.ifBlank { null }
                 conversationId?.let { prefs.edit().putString("conversation_id", it).apply() }
                 messages = messages + ChatMessage(result.first, true)
